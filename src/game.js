@@ -1,5 +1,4 @@
-// My tiny RPG starter with a bulldog-headed hero.
-// Tap anywhere to walk there. Arrow keys work if you have a keyboard.
+// RPG starter with bulldog-headed hero (3x4 walk sheet, transparent bg)
 
 const config = {
   type: Phaser.AUTO,
@@ -11,43 +10,56 @@ const config = {
 };
 
 let game, player, targetPoint = null, speed = 200, cursors;
-let facing = 'down'; // 'down' | 'left' | 'right' | 'up'
+let facing = 'down';  // 'down' | 'left' | 'right' | 'up'
+let fw = 0, fh = 0;   // frameWidth / frameHeight
 
 function preload() {
-  // 3 columns × 4 rows sprite sheet (12 frames total)
-  // Each row is a direction: 0=down, 1=left, 2=right, 3=up
-  // Each row has 3 frames for walking: col 0..2
-  //
-  // NOTE: These frame sizes assume each cell is 256×256.
-  // If your sheet uses a different cell size, change these two numbers.
-  this.load.spritesheet('bulldog', 'assets/animated_dog_character_walk.png', {
-    frameWidth: 256,
-    frameHeight: 256
-  });
+  // Load as a plain image first. We’ll calculate frame size from the image dims.
+  this.load.image('bulldogSheet', 'assets/animated_dog_character_walk.png');
 }
 
 function create() {
-  // soft grid background so it feels like a map
+  // draw a soft grid so it feels like a map
   const g = this.add.graphics();
   g.lineStyle(1, 0x233043, 1);
   const tile = 64;
   for (let x = 0; x < this.scale.width; x += tile) g.lineBetween(x, 0, x, this.scale.height);
   for (let y = 0; y < this.scale.height; y += tile) g.lineBetween(0, y, this.scale.width, y);
 
-  // bulldog player sprite
+  // ---- turn the image into a spritesheet (3 cols x 4 rows) ----
+  const tex = this.textures.get('bulldogSheet');
+  const img = tex.getSourceImage();
+  const cols = 3, rows = 4;
+
+  fw = Math.round(img.width / cols);
+  fh = Math.round(img.height / rows);
+
+  // create a real spritesheet texture from the image
+  this.textures.addSpriteSheet('bulldog', img, { frameWidth: fw, frameHeight: fh, endFrame: cols * rows - 1 });
+
+  // make the sprite
   player = this.physics.add.sprite(this.scale.width / 2, this.scale.height / 2, 'bulldog');
-  player.setScale(0.5); // shrink a bit so it fits nicely on phone screens
+
+  // lock origin near the feet so the head never “jumps” between frames
+  player.setOrigin(0.5, 0.85);
+
+  // scale down cleanly but keep physics box sensible
+  const scale = 0.5;
+  player.setScale(scale);
   player.body.setCollideWorldBounds(true);
+
+  // tighten the hitbox to the body (not the big head)
+  player.body.setSize(fw * 0.35, fh * 0.35, true);
 
   // helper to generate frames for a row (direction)
   const rowFrames = (row) => {
-    const start = row * 3;        // 3 columns per row
-    const end = start + 2;        // 0..2
+    const start = row * cols;       // 0..2, 3..5, 6..8, 9..11
+    const end = start + (cols - 1); // 2, 5, 8, 11
     return this.anims.generateFrameNumbers('bulldog', { start, end });
   };
 
-  // idle frames are the first frame of each row
-  const idleIndex = (row) => row * 3;
+  // idle = middle frame of the row (column 1)
+  const idleIndex = (row) => row * cols + 1;
 
   // four walk animations
   this.anims.create({ key: 'walk-down',  frames: rowFrames(0), frameRate: 10, repeat: -1 });
@@ -55,7 +67,7 @@ function create() {
   this.anims.create({ key: 'walk-right', frames: rowFrames(2), frameRate: 10, repeat: -1 });
   this.anims.create({ key: 'walk-up',    frames: rowFrames(3), frameRate: 10, repeat: -1 });
 
-  // set an initial idle frame (down)
+  // start idle facing down
   player.setFrame(idleIndex(0));
 
   // tap/click to move
@@ -85,9 +97,8 @@ function setAnimByVelocity(vx, vy) {
 
 function stopAndIdle() {
   player.anims.stop();
-  // set idle frame for current facing direction
   const facingRow = { down: 0, left: 1, right: 2, up: 3 }[facing] ?? 0;
-  player.setFrame(facingRow * 3); // first column of that row
+  player.setFrame(facingRow * 3 + 1); // middle column = nice neutral idle
 }
 
 function update() {
@@ -113,7 +124,6 @@ function update() {
     const dist = Phaser.Math.Distance.Between(player.x, player.y, targetPoint.x, targetPoint.y);
     if (dist < 8) { targetPoint = null; stopAndIdle(); }
   } else {
-    // no input → idle
     stopAndIdle();
   }
 }
