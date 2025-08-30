@@ -1,0 +1,78 @@
+// ---- DOG ANIMATION GUARD & RENDER (drop this in a plugin that runs after core.js) ----
+(function(){
+  if (!window.IZZA) return;
+
+  // 1) Single spawn guard (if you spawn the dog here; remove if core spawns it)
+  let _dogSpawned = false;
+  IZZA.on('ready', ()=>{
+    if (_dogSpawned) return; 
+    _dogSpawned = true;
+    // If your dog is spawned elsewhere, skip this section.
+    // Example (pseudo):
+    // IZZA.api.npcs.push({type:'dog', x: 40*32, y: 30*32, dir:'down', speed:0});
+  });
+
+  // 2) Ensure we render the dog in ONE stage only (choose over or under)
+  let _lastDrawTick = -1;
+
+  // Sprite sheet meta (adjust to your atlas):
+  const DOG = {
+    w:32, h:32,
+    // rows in the atlas for each facing:
+    row: { down:0, left:1, right:2, up:3 },
+    // columns for walk cycle (0-based, four frames typical)
+    walkCols: [0,1,2,3],
+    idleCol: 0,
+    frameMs: 120
+  };
+
+  function pickDogFrame(dog, nowMs){
+    const dir = dog.dir || 'down';
+    const moving = (Math.abs(dog.vx||0)+Math.abs(dog.vy||0)+Math.abs(dog.speed||0)) > 0.1;
+    const row = DOG.row[dir] ?? DOG.row.down;
+
+    if (!moving) return {col:DOG.idleCol, row};
+
+    const idx = Math.floor(nowMs / DOG.frameMs) % DOG.walkCols.length;
+    return {col: DOG.walkCols[idx], row};
+  }
+
+  // 3) Single-pass draw with full-scene redraw assumption (no need to clearRect)
+  IZZA.on('render-over', ({nowMs})=>{
+    if (!IZZA.api?.ready) return;
+
+    // guard against accidental double render in the same frame from another listener
+    const tick = IZZA.api.tick|0;
+    if (_lastDrawTick === tick) return;
+    _lastDrawTick = tick;
+
+    const api = IZZA.api;
+    const ctx = document.getElementById('game').getContext('2d');
+
+    // find your dog entity (adapt as needed)
+    const dog = (api.npcs||[]).find(n=> n.type==='dog');
+    if (!dog) return;
+
+    const S = api.DRAW, t = api.TILE, f = S/t;
+    const sx = (dog.x - api.camera.x) * f;
+    const sy = (dog.y - api.camera.y) * f;
+
+    // If you have a sprite atlas image: api.images.dog (adjust name)
+    const atlas = api.images?.dog;
+    if (!atlas){
+      // fallback: draw a placeholder box so we still see 1 dog only
+      ctx.fillStyle='#cda86b';
+      ctx.fillRect(sx, sy, S, S);
+      return;
+    }
+
+    const fr = pickDogFrame(dog, nowMs);
+
+    // Source rect on the atlas (0-based frames, no padding)
+    const sX = fr.col * DOG.w;
+    const sY = fr.row * DOG.h;
+    ctx.imageSmoothingEnabled = false; // keep crisp pixels
+    ctx.drawImage(atlas, sX, sY, DOG.w, DOG.h, sx, sy, S, S);
+  });
+
+})();
